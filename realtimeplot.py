@@ -1,6 +1,7 @@
-import asyncio
 import websockets
 import json
+import pandas as pd
+import asyncio
 import asyncpg
 
 
@@ -45,6 +46,9 @@ async def handle_trade(trade):
 
     await conn.close()
 
+    # Добавить паузу в 10 секунд
+    await asyncio.sleep(10)
+
 
 async def delete_old_data():
     conn = await asyncpg.connect(
@@ -62,6 +66,31 @@ async def delete_old_data():
     await conn.close()
 
 
+async def calculate_correlation():
+    # Установите подключение к базе данных PostgreSQL
+    conn = await asyncpg.connect(
+        user='postgres',
+        password='12345',
+        database='postgres',
+        port='5432'
+    )
+
+    try:
+        # Выполните SQL-запрос для извлечения данных из базы данных
+        query = 'SELECT timestamp, price FROM trades'
+        result = await conn.fetch(query)
+
+        # Создайте DataFrame из полученных данных
+        data = pd.DataFrame(result, columns=['X', 'Y'])
+
+        # Рассчитайте корреляцию
+        correlation = data['X'].corr(data['Y'])
+        print(f"Корреляция между X и Y: {correlation}")
+    finally:
+        # Закройте соединение с базой данных
+        await conn.close()
+
+
 async def main():
     symbol = 'ethusdt'
     url = "wss://stream.binance.com:9443/ws"
@@ -73,6 +102,7 @@ async def main():
             response = await ws.recv()
             await handle_trade(response)
             await delete_old_data()  # Удаление старых данных
+            await calculate_correlation()
 
 
 if __name__ == '__main__':
