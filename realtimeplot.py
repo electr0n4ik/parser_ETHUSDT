@@ -1,3 +1,4 @@
+import time
 import websockets
 import json
 import pandas as pd
@@ -84,13 +85,45 @@ async def calculate_correlation():
         data = pd.DataFrame(result, columns=['X', 'Y'])
 
         # Рассчитайте корреляцию
-        # корреляция Пирсона по умолчанию
-
-        correlation = data['X'].corr(data['Y'])
-        print(f"Корреляция между X и Y: {correlation}")
+        if len(data) >= 2:
+            correlation = data['X'].corr(data['Y'])
+            if not pd.isnan(correlation):
+                print(f"Корреляция между X и Y: {correlation}")
+            else:
+                print("Недостаточно данных для расчета корреляции.")
+        else:
+            print("Недостаточно данных для расчета корреляции.")
     finally:
         # Закройте соединение с базой данных
         await conn.close()
+
+
+async def price_change_alert(data, price_change_threshold=0.01, time_frame=60):
+    price_history = []
+
+    while True:
+        current_price = data["p"]
+        timestamp = int(time.time())
+        price_history.append((current_price, timestamp))
+
+        # Оставляем только данные, которые находятся в заданном временном диапазоне
+        while price_history and timestamp - price_history[0][1] > time_frame * 60:
+            price_history.pop(0)
+
+        # Рассчитываем изменение цены
+        if len(price_history) >= 2:
+            previous_price = price_history[0][0]
+            percent_change = (current_price - previous_price) / previous_price
+
+            if abs(percent_change) >= price_change_threshold:
+                if percent_change > 0:
+                    movement = "Цена растет"
+                else:
+                    movement = "Цена падает"
+
+                print(f"Изменение цены на {abs(percent_change) * 100:.2f}% за последние {time_frame} минут. {movement}")
+
+        await asyncio.sleep(10)  # Проверяем каждые 10 секунд
 
 
 async def main():
