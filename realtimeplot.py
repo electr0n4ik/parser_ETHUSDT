@@ -1,9 +1,10 @@
-import time
-import websockets
-import json
-import pandas as pd
 import asyncio
+import json
+import time
+
 import asyncpg
+import pandas as pd
+import websockets
 
 
 async def create_table():
@@ -47,7 +48,7 @@ async def handle_trade(trade):
 
     await conn.close()
 
-    # Добавить паузу в 10 секунд
+    # пауза в 10 секунд
     await asyncio.sleep(10)
 
 
@@ -68,7 +69,6 @@ async def delete_old_data():
 
 
 async def calculate_correlation():
-    # Установите подключение к базе данных PostgreSQL
     conn = await asyncpg.connect(
         user='postgres',
         password='12345',
@@ -77,24 +77,26 @@ async def calculate_correlation():
     )
 
     try:
-        # Выполните SQL-запрос для извлечения данных из базы данных
-        query = 'SELECT timestamp, price FROM trades'
+        # SQL-запрос для извлечения данных из базы данных
+        query = 'SELECT timestamp, price FROM trades ORDER BY timestamp'
         result = await conn.fetch(query)
 
-        # Создайте DataFrame из полученных данных
+        # DataFrame из полученных данных
         data = pd.DataFrame(result, columns=['X', 'Y'])
 
-        # Рассчитайте корреляцию
-        if len(data) >= 2:
+        # Рассчет корреляции
+        if not data.empty:
             correlation = data['X'].corr(data['Y'])
-            if not pd.isnan(correlation):
+
+            if not pd.isnull(correlation):
                 print(f"Корреляция между X и Y: {correlation}")
             else:
                 print("Недостаточно данных для расчета корреляции.")
         else:
             print("Недостаточно данных для расчета корреляции.")
+    except asyncpg.PostgresError as e:
+        print(f"Error executing query: {e}")
     finally:
-        # Закройте соединение с базой данных
         await conn.close()
 
 
