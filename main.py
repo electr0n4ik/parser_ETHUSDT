@@ -1,78 +1,138 @@
-import telegram
+import asyncio
 import json
-from telethon.sync import TelegramClient
-from telegram import Bot
+import time
 
-TELEGRAM_BOT_TOKEN = '6159029946:AAGKDsOLrYifByB9-ZMuuO5tsigNWOF2sS4'
+import pandas as pd
+import websockets
+from sqlalchemy import create_engine, Column, Integer, String, Numeric, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
-# Замените 'YOUR_BOT_TOKEN' на токен вашего бота
-bot = Bot(token='TELEGRAM_BOT_TOKEN')
-
-# Замените 'CHAT_ID' на идентификатор чата, который вас интересует
-chat_username = 'nevzorovtvchat'
-
-# Замените 'api_id' и 'api_hash' на ваши значения
-api_id = '18920580'
-api_hash = 'f94ba8acc61d1a5069a1e55a277295d1'
-
-# Введите номер телефона и код для авторизации
-phone_number = '+79278444153'
-code = 'N1998n1998n'
-
-list_members_premium = []
-list_members_true_story = []
-
-with TelegramClient('session_name', api_id, api_hash) as client:
-    # Авторизуйтесь
-    client.start(phone_number, code)
-
-    # Получите идентификатор чата по никнейму
-    chat = client.get_entity(chat_username)
-
-    # Выведите информацию о чате
-    print("Chat ID:", chat.id)
-    print("Chat Title:", chat.title)
-
-    # Получите список участников чата
-    members = client.get_participants(chat)
-    print("Members count:", len(members))
-
-    for member in members:
-        if member.premium:
-            list_members_premium.append(member)
-
-        if not member.stories_unavailable:
-            # if member.premium:
-            # print(f"Username: {member.username}, ID: {member.id}")
-            # print(f'{stories_hidden} stories hidden')
-            list_members_true_story.append(member)
-    print("Total members premium:", len(list_members_premium))
-    print("Total members true story:", len(list_members_true_story))
-
-with open('list_members_true_story.txt', 'w', encoding='utf-8') as f:
-    for member in list_members_true_story:
-        if member.username != None:
-            f.write(f"{member.username}\n")
+Base = declarative_base()
 
 
-# stories_hidden указывает на то, скрыты ли истории пользователя. Если значение этого атрибута равно True, это означает, что истории скрыты.
-#
-# stories_unavailable указывает на доступность историй пользователя. Если значение этого атрибута равно True, это означает, что истории недоступны.
+class Trade(Base):
+    __tablename__ = 'trades'
 
-# User(id=5533800528, ...) - Это объект пользователя Telegram с идентификатором 5533800528. Он содержит информацию о пользователе. Вот некоторые атрибуты этого объекта:
-#
-# is_self: Пользователь не является самим собой (False).
-# first_name: Имя пользователя, в данном случае, "Марселлас".
-# username: Никнейм пользователя, "marseller_money".
-# status: Статус пользователя (UserStatusRecently()).
-# lang_code: Код языка пользователя (пусто).
-# phone: Номер телефона пользователя (пусто).
-# User(id=460468191, ...) - Это другой объект пользователя Telegram с идентификатором 460468191. Он также содержит информацию о пользователе. Некоторые атрибуты этого объекта:
-#
-# is_self: Пользователь не является самим собой (False).
-# first_name: Имя пользователя, "Андрюха".
-# username: Никнейм пользователя, "id_egoyan".
-# status: Статус пользователя (UserStatusRecently()).
-# lang_code: Код языка пользователя, "ru".
-# phone: Номер телефона пользователя (пусто).
-# total=2 - Общее количество пользователей (или участников чата) в списке, которое равно 2.
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String)
+    price = Column(Numeric)
+    timestamp = Column(DateTime)
+
+
+async def create_table():
+    engine = create_engine('postgresql://postgres:12345@localhost:5432/postgres')
+    Base.metadata.create_all(engine)
+
+
+async def handle_trade(trade):
+    data = json.loads(trade)
+    print(f"Торговая пара: {data['s']}, Цена: {data['p']} {data['s']}")
+    symbol = data['s']
+    price = data['p']
+
+    engine = create_engine('postgresql://postgres:12345@localhost:5432/postgres')
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    # Вставка данных в таблицу
+    trade_entry = Trade(symbol=symbol, price=price, timestamp=time.strftime('%Y-%m-%d %H:%M:%S'))
+    session.add(trade_entry)
+    session.commit()
+    session.close()
+
+    # пауза в 10 секунд
+    await asyncio.sleep(10)
+
+
+async def delete_old_data():
+    engine = create_engine('postgresql://postgres:12345@localhost:5432/postgres')
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    # Удаление данных старше 1 часа
+    session.query(Trade).filter(
+        Trade.timestamp < time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(time.time() - 3600))).delete()
+    session.commit()
+    session.close()
+
+
+async def calculate_correlation():
+    engine = create_engine('postgresql://postgres:12345@localhost:5432/postgres')
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    try:
+        # SQL-запрос для извлечения данных из базы данных
+        result = session.query(Trade.timestamp, Trade.price).order_by(Trade.timestamp).all()
+
+        # DataFrame из полученных данных
+        data = pd.DataFrame(result, columns=['X', 'Y'])
+
+        # Рассчет корреляции
+        if not data.empty:
+            correlation = data['X'].corr(data['Y'])
+
+            if not pd.isnull(correlation):
+                print(f"Корреляция между X и Y: {correlation}")
+            else:
+                print("Недостаточно данных для расчета корреляции.")
+        else:
+            print("Недостаточно данных для расчета корреляции.")
+    except Exception as e:
+        print(f"Error executing query: {e}")
+    finally:
+        session.close()
+
+
+async def price_change_alert(data, price_change_threshold=0.01, time_frame=60):
+    engine = create_engine('postgresql://postgres:12345@localhost:5432/postgres')
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    price_history = []
+
+    while True:
+        current_price = data["p"]
+        timestamp = time.time()
+
+        price_history.append((current_price, timestamp))
+
+        # Оставляем только данные, которые находятся в заданном временном диапазоне
+        while price_history and timestamp - price_history[0][1] > time_frame * 60:
+            price_history.pop(0)
+
+        # Рассчитываем изменение цены
+        if len(price_history) >= 2:
+            previous_price = price_history[0][0]
+            percent_change = (current_price - previous_price) / previous_price
+
+            if abs(percent_change) >= price_change_threshold:
+                if percent_change > 0:
+                    movement = "Цена растет"
+                else:
+                    movement = "Цена падает"
+
+                print(f"Изменение цены на {abs(percent_change) * 100:.2f}% за последние {time_frame} минут. {movement}")
+
+        await asyncio.sleep(10)  # Проверяем каждые 10 секунд
+
+    session.close()
+
+
+async def main():
+    symbol = 'ethusdt'
+    url = "wss://stream.binance.com:9443/ws"
+
+    await create_table()  # Создание таблицы
+
+    async with websockets.connect(f"{url}/{symbol}@trade") as ws:
+        while True:
+            response = await ws.recv()
+            await handle_trade(response)
+            await delete_old_data()  # Удаление старых данных
+            await calculate_correlation()
+
+
+if __name__ == '__main__':
+    asyncio.get_event_loop().run_until_complete(main())

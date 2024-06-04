@@ -1,6 +1,0 @@
-{
-    "error": {
-        "code": "function_access_restricted",
-        "message": "Your current subscription plan does not support this API function"
-    }
-}
